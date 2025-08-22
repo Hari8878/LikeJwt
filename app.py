@@ -23,6 +23,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 app = Flask(__name__)
 AES_KEY = b'Yg&tc%DEuh6%Zc^8'
@@ -30,6 +31,53 @@ AES_IV = b'6oyZDr22E3ychjM%'
 # ✅ Per-key rate limit setup
 KEY_LIMIT = 150
 token_tracker = defaultdict(lambda: [0, time.time()])  # token: [count, last_reset_time]
+
+
+import os
+import json
+import time
+import base64
+import requests
+from flask import Flask, jsonify
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+app = Flask(__name__)
+
+# --- GitHub repo details ---
+GITHUB_REPO = "Hari8878/LikeJwt"
+FILE_PATH = "token_ind.json"
+BRANCH = "main"
+GITHUB_TOKEN = os.environ.get("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")  # set in Vercel env vars
+
+def update_github_file(new_content):
+    """Update or create token_ind.json on GitHub repo via REST API"""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{FILE_PATH}"
+    headers = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
+
+    # Get current file sha (if exists)
+    resp = requests.get(url, headers=headers)
+    sha = resp.json().get("sha") if resp.status_code == 200 else None
+
+    data = {
+        "message": "update token_ind.json",
+        "content": base64.b64encode(new_content.encode()).decode(),
+        "branch": BRANCH
+    }
+    if sha:
+        data["sha"] = sha  # required for update
+
+    r = requests.put(url, headers=headers, json=data)
+    if r.status_code not in [200, 201]:
+        raise RuntimeError(f"GitHub update failed: {r.text}")
+
+
+
+
+
+
+
+
+
 
 def get_today_midnight_timestamp():
     now = datetime.now()
@@ -559,7 +607,7 @@ def decode_protobuf(binary):
 @app.route('/like', methods=['GET'])
 def handle_requests():
     uid = request.args.get("uid")
-    server_name = request.args.get("server_name", "").upper()
+    server_name = request.args.get("ser", "").upper()
     key = request.args.get("key")
 
     if key != "TBO":
@@ -642,20 +690,23 @@ def handle_requests2():
         with open("backup.json", "r") as f:
             user_data = json.load(f)
 
-        max_workers = 20  # Adjust as needed
+        max_workers = 20
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(process_token_entry, entry) for entry in user_data]
             for future in as_completed(futures):
-                result = future.result()
-                if result and "token" in result:
-                    token_results.append({
-                        "uid": result['uid'],
-                        "token": result['token']
-                    })
+                try:
+                    result = future.result()
+                    if result and "token" in result:
+                        token_results.append({
+                            "uid": result['uid'],
+                            "token": result['token']
+                        })
+                except Exception as e:
+                    print(f"⚠️ Error in worker: {e}")
 
         if token_results:
-            with open("token_ind.json", "w") as outfile:
-                json.dump(token_results, outfile, indent=2)
+            update_github_file(json.dumps(token_results, indent=2))
+            print("✅ token_ind.json pushed to GitHub")
         else:
             print("⚠️ No tokens to save.")
 
